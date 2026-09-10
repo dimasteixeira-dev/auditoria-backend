@@ -176,3 +176,28 @@ def listar_tarifas(db: Session = Depends(get_db)):
                 tarifa_injetada_autoconsumo_gd2=atual.tarifa_injetada_autoconsumo_gd2,
             ))
     return out
+
+
+@app.get("/rateio", response_model=list[s.RateioLinhaOut])
+def rateio(competencia: date, db: Session = Depends(get_db)):
+    return rules.rateio_detalhado(db, competencia)
+
+
+@app.get("/geracao", response_model=list[s.GeracaoUsinaOut])
+def geracao(db: Session = Depends(get_db)):
+    return rules.geracao_series(db)
+
+
+@app.get("/capturas-pendentes", response_model=list[s.CapturaPendenteOut])
+def capturas_pendentes(competencia: date, db: Session = Depends(get_db)):
+    return rules.capturas_pendentes_detalhe(db, competencia)
+
+
+@app.get("/inadimplencia", response_model=list[s.InadimplenciaOut])
+def inadimplencia(db: Session = Depends(get_db)):
+    return rules.inadimplencia_detalhe(db)
+
+
+@app.get("/usinas/{usina_id}/auditorias", response_model=list[s.AuditoriaPontoOut])
+def auditorias(usina_id: int, db: Session = Depends(get_db)):
+    return rules.auditorias_usina(db, usina_id)

@@ -103,3 +103,67 @@ class TarifaOut(BaseModel):
     tarifa_injetada_gd2: float
     tarifa_injetada_autoconsumo_gd1: float
     tarifa_injetada_autoconsumo_gd2: float
+
+
+class RateioLinhaOut(BaseModel):
+    uc_id: int
+    usina_id: int
+    usina_nome: str
+    numero: str
+    apelido: str | None
+    consumo_compensavel_kwh: float
+    saldo_kwh: float
+    rateio_ideal_pct: float | None
+    rateio_verificado_pct: float | None
+    autonomia_meses: float
+    dias_vencido: int
+    sinal_saldo: str
+    sinal_consumo: str
+    sinal_inadimplencia: str
+
+
+class GeracaoPontoOut(BaseModel):
+    competencia: date
+    energia_injetada_kwh: float
+    creditos_utilizados_m1_kwh: float
+
+
+class GeracaoUsinaOut(BaseModel):
+    usina_id: int
+    usina_nome: str
+    serie: list[GeracaoPontoOut]
+
+
+class CapturaPendenteOut(BaseModel):
+    uc_id: int
+    usina_id: int
+    usina_nome: str
+    numero: str
+    apelido: str | None
+    consumo_compensavel_kwh: float
+    tarifa_media_retorno: float
+    faturamento_perdido: float
+
+
+class InadimplenciaOut(BaseModel):
+    fatura_id: int
+    usina_id: int | None
+    usina_nome: str
+    uc_id: int | None
+    numero_conta: str | None
+    titular: str | None
+    unificada: bool
+    total_sunne: float
+    total_concessionaria: float
+    valor_real_a_pagar: float
+    vencimento_sunne: date | None
+    dias_vencido: int | None
+
+
+class AuditoriaPontoOut(BaseModel):
+    competencia: date
+    health_score: float
+    status: str
+    eficiencia_rateio: float
+    vacancia: float
+    capturas_pendentes: int

@@ -353,3 +353,113 @@ def gerar_alertas(db: Session, competencia: date, hoje: date = None) -> list:
 
     db.commit()
     return gerados
+
+
+# ---------------- Detalhes por módulo (Rateio, Geração, Faturamento, Inadimplência, Auditorias) ----------------
+
+def rateio_detalhado(db: Session, competencia: date) -> list:
+    """Uma linha por UC cadastrada no RATEIO, com as 3 sinalizações (RATEIO!V/W/Z)."""
+    n = primeiro_dia_mes(competencia)
+    params = get_parametros(db)
+    hoje = date.today()
+    linhas = []
+    for uc in db.query(m.UC).all():
+        dias_vencido = uc_dias_vencido(db, uc, hoje)
+        linhas.append({
+            "uc_id": uc.id, "usina_id": uc.usina_id, "usina_nome": uc.usina.nome,
+            "numero": uc.numero, "apelido": uc.apelido,
+            "consumo_compensavel_kwh": uc.consumo_compensavel_kwh, "saldo_kwh": uc.saldo_kwh,
+            "rateio_ideal_pct": uc.rateio_ideal_pct, "rateio_verificado_pct": uc.rateio_verificado_pct,
+            "autonomia_meses": uc.autonomia_meses, "dias_vencido": dias_vencido,
+            "sinal_saldo": uc_sinal_saldo(uc, params),
+            "sinal_consumo": uc_sinal_consumo(db, uc, n),
+            "sinal_inadimplencia": uc_sinal_inadimplencia(dias_vencido, params),
+        })
+    return linhas
+
+
+def geracao_series(db: Session) -> list:
+    """Histórico de energia injetada por usina + créditos utilizados no mês seguinte (M+1),
+    para o comparativo Geração(M) × Créditos Utilizados(M+1) (aba FLUTUACAO_USINAS)."""
+    out = []
+    for usina in db.query(m.Usina).all():
+        registros = (
+            db.query(m.Geracao)
+            .filter(m.Geracao.usina_id == usina.id)
+            .order_by(m.Geracao.competencia.asc())
+            .all()
+        )
+        serie = []
+        for g in registros:
+            m1 = edate(g.competencia, 1)
+            creditos_m1 = (
+                db.query(func.sum(m.Fatura.creditos_utilizados_kwh))
+                .filter(m.Fatura.usina_extrato_id == usina.id, m.Fatura.competencia == m1)
+                .scalar()
+            )
+            serie.append({
+                "competencia": g.competencia, "energia_injetada_kwh": g.energia_injetada_kwh,
+                "creditos_utilizados_m1_kwh": float(creditos_m1 or 0.0),
+            })
+        out.append({"usina_id": usina.id, "usina_nome": usina.nome, "serie": serie})
+    return out
+
+
+def capturas_pendentes_detalhe(db: Session, competencia: date) -> list:
+    """UCs do RATEIO sem fatura na competência N + faturamento potencial perdido (FATURAS_MATRIZ)."""
+    n = primeiro_dia_mes(competencia)
+    out = []
+    for uc in db.query(m.UC).all():
+        tem_fatura = (
+            db.query(m.Fatura).filter(m.Fatura.uc_id == uc.id, m.Fatura.competencia == n).first()
+        )
+        if tem_fatura:
+            continue
+        tarifa = tarifa_retorno_liquida(db, uc.usina)
+        perdido = uc.consumo_compensavel_kwh * tarifa
+        out.append({
+            "uc_id": uc.id, "usina_id": uc.usina_id, "usina_nome": uc.usina.nome,
+            "numero": uc.numero, "apelido": uc.apelido, "consumo_compensavel_kwh": uc.consumo_compensavel_kwh,
+            "tarifa_media_retorno": tarifa, "faturamento_perdido": perdido,
+        })
+    return out
+
+
+def inadimplencia_detalhe(db: Session) -> list:
+    """Todas as faturas com status Vencido, com o valor real a pagar (INADIMPLENCIA!I)."""
+    out = []
+    for f in db.query(m.Fatura).filter(m.Fatura.status_pagamento == "Vencido").all():
+        valor_real = (f.total_a_pagar_sunne - f.total_a_pagar_concessionaria) if f.unificada else f.total_a_pagar_sunne
+        dias = (date.today() - f.vencimento_sunne).days if f.vencimento_sunne else None
+        usina = db.get(m.Usina, f.usina_extrato_id)
+        out.append({
+            "fatura_id": f.id, "usina_id": f.usina_extrato_id, "usina_nome": usina.nome if usina else "—",
+            "uc_id": f.uc_id, "numero_conta": f.numero_uc_extrato, "titular": f.titular,
+            "unificada": f.unificada, "total_sunne": f.total_a_pagar_sunne,
+            "total_concessionaria": f.total_a_pagar_concessionaria, "valor_real_a_pagar": valor_real,
+            "vencimento_sunne": f.vencimento_sunne, "dias_vencido": dias,
+        })
+    return out
+
+
+def auditorias_usina(db: Session, usina_id: int) -> list:
+    """Snapshot mensal calculado sob demanda para cada competência em que há GERACAO
+    registrada para a usina (equivalente ao histórico de auditorias mensais)."""
+    usina = db.get(m.Usina, usina_id)
+    if not usina:
+        return []
+    params = get_parametros(db)
+    competencias = [
+        g.competencia for g in
+        db.query(m.Geracao).filter(m.Geracao.usina_id == usina_id).order_by(m.Geracao.competencia.asc()).all()
+    ]
+    out = []
+    for comp in competencias:
+        ind = calcular_indicadores_usina(db, usina, comp)
+        score = health_score(ind, params)
+        out.append({
+            "competencia": ind.competencia, "health_score": round(score, 2),
+            "status": status_from_score(score, params), "eficiencia_rateio": ind.eficiencia_rateio,
+            "vacancia": ind.vacancia, "capturas_pendentes": ind.capturas_pendentes,
+        })
+    return out
