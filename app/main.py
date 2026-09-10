@@ -3,6 +3,7 @@ import shutil
 import tempfile
 from datetime import date
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from . import models as m, schemas as s, rules
@@ -15,6 +16,16 @@ app = FastAPI(
     title="Plataforma de Auditoria de Carteira Solar",
     description="API do painel de auditoria operacional e financeira de usinas solares.",
     version="1.0.0",
+)
+
+# CORS: permite que o site (Vercel) fale com esta API (Render). Em produção,
+# troque "*" pela URL exata do seu site (ex.: https://auditoria-gold.vercel.app)
+# para restringir quem pode chamar a API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -58,7 +69,15 @@ def dashboard(competencia: date, db: Session = Depends(get_db)):
 
 @app.get("/usinas", response_model=list[s.UsinaOut])
 def listar_usinas(db: Session = Depends(get_db)):
-    return db.query(m.Usina).all()
+    out = []
+    for u in db.query(m.Usina).all():
+        out.append(s.UsinaOut(
+            id=u.id, nome=u.nome, distribuidora=u.distribuidora.nome if u.distribuidora else None,
+            uf=u.uf, gd=u.gd, modalidade=u.modalidade, uc_ancora_numero=u.uc_ancora_numero,
+            pct_administracao=u.pct_administracao, desconto_cliente=u.desconto_cliente,
+            status=u.status, responsavel=u.responsavel,
+        ))
+    return out
 
 
 @app.get("/usinas/{usina_id}/indicadores", response_model=s.IndicadoresOut)
@@ -108,3 +127,52 @@ def importar(arquivo: UploadFile = File(...), db: Session = Depends(get_db)):
     finally:
         os.unlink(tmp_path)
     return resultado
+
+
+@app.get("/ucs", response_model=list[s.UcOut])
+def listar_ucs(db: Session = Depends(get_db)):
+    ucs = db.query(m.UC).all()
+    return [
+        s.UcOut(
+            id=uc.id, usina_id=uc.usina_id, usina_nome=uc.usina.nome, numero=uc.numero,
+            apelido=uc.apelido, consumo_compensavel_kwh=uc.consumo_compensavel_kwh,
+            saldo_kwh=uc.saldo_kwh, autonomia_meses=uc.autonomia_meses,
+            rateio_ideal_pct=uc.rateio_ideal_pct, rateio_verificado_pct=uc.rateio_verificado_pct,
+        )
+        for uc in ucs
+    ]
+
+
+@app.get("/chamados", response_model=list[s.ChamadoOut])
+def listar_chamados(status: str | None = None, db: Session = Depends(get_db)):
+    q = db.query(m.Chamado)
+    if status:
+        q = q.filter(m.Chamado.status == status)
+    return [
+        s.ChamadoOut(
+            id=c.id, usina_id=c.usina_id, usina_nome=c.usina.nome, tipo=c.tipo,
+            descricao=c.descricao, qtd_ucs=c.qtd_ucs, data_abertura=c.data_abertura,
+            status=c.status, impacto_mrr=c.impacto_mrr,
+        )
+        for c in q.all()
+    ]
+
+
+@app.get("/tarifas", response_model=list[s.TarifaOut])
+def listar_tarifas(db: Session = Depends(get_db)):
+    out = []
+    for dist in db.query(m.Distribuidora).all():
+        atual = (
+            db.query(m.TarifaHistorico)
+            .filter_by(distribuidora_id=dist.id)
+            .order_by(m.TarifaHistorico.vigencia_inicio.desc())
+            .first()
+        )
+        if atual:
+            out.append(s.TarifaOut(
+                distribuidora=dist.nome, uf=dist.uf, tarifa_fornecida=atual.tarifa_fornecida,
+                tarifa_injetada_gd1=atual.tarifa_injetada_gd1, tarifa_injetada_gd2=atual.tarifa_injetada_gd2,
+                tarifa_injetada_autoconsumo_gd1=atual.tarifa_injetada_autoconsumo_gd1,
+                tarifa_injetada_autoconsumo_gd2=atual.tarifa_injetada_autoconsumo_gd2,
+            ))
+    return out

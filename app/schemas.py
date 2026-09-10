@@ -5,9 +5,11 @@ from pydantic import BaseModel
 class UsinaOut(BaseModel):
     id: int
     nome: str
+    distribuidora: str | None
     uf: str | None
     gd: int | None
     modalidade: str | None
+    uc_ancora_numero: str | None
     pct_administracao: float
     desconto_cliente: float
     status: str | None
@@ -66,3 +68,38 @@ class DashboardOut(BaseModel):
     usinas_criticas: int
     usinas_atencao: int
     usinas: list[IndicadoresOut]
+
+
+class UcOut(BaseModel):
+    id: int
+    usina_id: int
+    usina_nome: str
+    numero: str
+    apelido: str | None
+    consumo_compensavel_kwh: float
+    saldo_kwh: float
+    autonomia_meses: float
+    rateio_ideal_pct: float | None
+    rateio_verificado_pct: float | None
+
+
+class ChamadoOut(BaseModel):
+    id: int
+    usina_id: int
+    usina_nome: str
+    tipo: str | None
+    descricao: str | None
+    qtd_ucs: int
+    data_abertura: date | None
+    status: str
+    impacto_mrr: float
+
+
+class TarifaOut(BaseModel):
+    distribuidora: str
+    uf: str | None
+    tarifa_fornecida: float
+    tarifa_injetada_gd1: float
+    tarifa_injetada_gd2: float
+    tarifa_injetada_autoconsumo_gd1: float
+    tarifa_injetada_autoconsumo_gd2: float
